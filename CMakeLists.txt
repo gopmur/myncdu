@@ -3,8 +3,4 @@ project(myncdu)
 
 set(C_STANDARD 11)
 
-file (GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.c")
-
-include_directories("header")
-
-add_executable(myncdu ${SOURCES})
+add_executable(myncdu myncdu.c)
