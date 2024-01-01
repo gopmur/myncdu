@@ -15,6 +15,7 @@
 #include <pthread.h>
 
 #include "darray.h"
+#include "main.h"
 
 long fsize(char *filePath) {
     FILE *file = fopen(filePath, "r");
@@ -90,7 +91,7 @@ void *search_and_calculate(void *args) {
         }
     }
 
-    for (int i = 0; i < children.n; i++) {
+    for (int i = 0; i < children.len; i++) {
         pthread_join(children.ids[i], NULL);
     }
 
@@ -198,7 +199,7 @@ int main(int argc, char **argv) {
             }
         }
 
-        for (int i = 0; i < children.n; i++) {
+        for (int i = 0; i < children.len; i++) {
             pthread_join(children.ids[i], NULL);
         }
 
