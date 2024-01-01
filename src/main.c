@@ -14,22 +14,7 @@
 
 #include <pthread.h>
 
-#include "stack.h"
-
-typedef struct _StrIntPair {
-    char *str;
-    int i;
-} StrIntPair;
-
-typedef struct _Result {
-    int numberOfFiles;
-    StrIntPair *fileTypes;
-    char *maxFilePath;
-    long maxSize;
-    char *minFilePath;
-    long minSize;
-    long totalSize;
-} Result;
+#include "darray.h"
 
 long fsize(char *filePath) {
     FILE *file = fopen(filePath, "r");
@@ -54,6 +39,67 @@ char *dir_cat(char *currentDirectory, char *fileName) {
     return filePath;
 }
 
+typedef struct _Args {
+    char *path;
+} Args;
+
+sem_t sem;
+Result *result;
+
+// string should be copied
+void *search_and_calculate(void *args) {
+
+    // init args
+    char *path = ((Args *)args)->path;
+
+    DIR *dir = opendir(path);
+    struct dirent *item;
+
+    ThreadHandles children;
+    thread_handles_init(&children);
+
+    while ((item = readdir(dir)) != NULL) {
+        switch (item->d_type) {
+            case DT_REG:
+
+                char *filePath = dir_cat(path, item->d_name);
+                long fileSize = fsize(filePath);
+                printf("%s: %d\n", filePath, fileSize);
+
+                sem_wait(&sem); // * critical section start
+                {
+                    if (result->minSize > fileSize) {
+                        result->minSize = fileSize;
+                    }
+                    if (result->maxSize < fileSize) result->maxSize = fileSize;
+                    result->totalSize += fileSize;
+                }
+                sem_post(&sem); // ! critical section end
+                free(filePath);
+                break;
+
+            case DT_DIR:
+                if (strcmp(item->d_name, ".") && strcmp(item->d_name, "..")) {
+                    pthread_t ptid;
+                    Args *args = (Args *)malloc(sizeof(Args));
+                    args->path = dir_cat(path, item->d_name);
+                    pthread_create(&ptid, NULL, &search_and_calculate, (void *)args);
+                    thread_handles_add(&children, ptid);
+                }
+                break;
+        }
+    }
+
+    for (int i = 0; i < children.n; i++) {
+        pthread_join(children.ids[i], NULL);
+    }
+
+    thread_handles_delete(&children);
+    free(path);
+    closedir(dir);
+}
+
+
 int main(int argc, char **argv) {
 
     if (argc != 2) {
@@ -71,13 +117,12 @@ int main(int argc, char **argv) {
     key_t minFilePathKey = ("myncdu", 'b');
     key_t maxFilePathKey = ("myncdu", 'c');
     int shmid = shmget(resultKey, sizeof(Result), 0666 | IPC_CREAT);
-    Result *result = (Result *)shmat(shmid, NULL, 0);
+    result = (Result *)shmat(shmid, NULL, 0);
 
     result->totalSize = 0;
     result->minSize = LONG_MAX;
     result->maxSize = 0;
 
-    sem_t sem;
     sem_init(&sem, 0, 1);
 
     if (dir) {
@@ -95,13 +140,13 @@ int main(int argc, char **argv) {
                 printf("%s: %d\n", filePath, fileSize);
 
                 sem_wait(&sem); // * critical section start
-
-                if (result->minSize > fileSize) {
-                    result->minSize = fileSize;
+                {
+                    if (result->minSize > fileSize) {
+                        result->minSize = fileSize;
+                    }
+                    if (result->maxSize < fileSize) result->maxSize = fileSize;
+                    result->totalSize += fileSize;
                 }
-                if (result->maxSize < fileSize) result->maxSize = fileSize;
-                result->totalSize += fileSize;
-
                 sem_post(&sem); // ! critical section end
 
                 free(filePath);
@@ -109,7 +154,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    // child
+    // child proc
     if (pid == 0) {
 
         // create new dir addr in path var
@@ -123,6 +168,8 @@ int main(int argc, char **argv) {
         closedir(dir);
         dir = opendir(currentPath);
 
+        ThreadHandles children;
+        thread_handles_init(&children);
 
         while ((item = readdir(dir)) != NULL) {
             if (item->d_type == DT_REG) {
@@ -133,16 +180,29 @@ int main(int argc, char **argv) {
                 printf("%s : %ld\n", filePath, fileSize);
 
                 sem_wait(&sem); // * critical section start
-
-                if (result->minSize > fileSize) result->minSize = fileSize;
-                if (result->maxSize < fileSize) result->maxSize = fileSize;
-                result->totalSize += fileSize;
-
+                {
+                    if (result->minSize > fileSize) result->minSize = fileSize;
+                    if (result->maxSize < fileSize) result->maxSize = fileSize;
+                    result->totalSize += fileSize;
+                }
                 sem_post(&sem); // ! critical section end
 
                 free(filePath);
             }
+            else if (item->d_type == DT_DIR && strcmp(item->d_name, ".") && strcmp(item->d_name, "..")) {
+                pthread_t ptid;
+                Args *args = (Args *)malloc(sizeof(Args));
+                args->path = dir_cat(currentPath, item->d_name);
+                pthread_create(&ptid, NULL, &search_and_calculate, args);
+                thread_handles_add(&children, ptid);
+            }
         }
+
+        for (int i = 0; i < children.n; i++) {
+            pthread_join(children.ids[i], NULL);
+        }
+
+        thread_handles_delete(&children);
 
     }
 
@@ -150,7 +210,6 @@ int main(int argc, char **argv) {
     else {
 
         // wait for all children to finish
-
         while (wait(NULL) > 0);
         printf("total size: %d\n", result->totalSize);
         printf("max size: %d\n", result->maxSize);
