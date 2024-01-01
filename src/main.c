@@ -42,6 +42,8 @@ char *dir_cat(char *currentDirectory, char *fileName) {
 
 typedef struct _Args {
     char *path;
+    key_t minFilePathKey;
+    key_t maxFilePathKey;
 } Args;
 
 sem_t sem;
@@ -52,6 +54,8 @@ void *search_and_calculate(void *args) {
 
     // init args
     char *path = ((Args *)args)->path;
+    int minFilePathKey = ((Args *)args)->minFilePathKey;
+    int maxFilePathKey = ((Args *)args)->maxFilePathKey;
 
     DIR *dir = opendir(path);
     struct dirent *item;
@@ -65,14 +69,27 @@ void *search_and_calculate(void *args) {
 
                 char *filePath = dir_cat(path, item->d_name);
                 long fileSize = fsize(filePath);
-                printf("%s: %d\n", filePath, fileSize);
 
                 sem_wait(&sem); // * critical section start
                 {
                     if (result->minSize > fileSize) {
                         result->minSize = fileSize;
+                        if (result->minFilePathShmid != -1) {
+                            shmctl(result->minFilePathShmid, IPC_RMID, NULL);
+                        }
+                        result->minFilePathShmid = shmget(minFilePathKey, strlen(filePath) + 1, 0666 | IPC_CREAT);
+                        char *minFilePath = shmat(result->minFilePathShmid, NULL, 0);
+                        strcpy(minFilePath, filePath);
                     }
-                    if (result->maxSize < fileSize) result->maxSize = fileSize;
+                    if (result->maxSize < fileSize) {
+                        result->maxSize = fileSize;
+                        if (result->maxFilePathShmid != -1) {
+                            shmctl(result->maxFilePathShmid, IPC_RMID, NULL);
+                        }
+                        result->maxFilePathShmid = shmget(maxFilePathKey, strlen(filePath) + 1, 0666 | IPC_CREAT);
+                        char *maxFilePath = shmat(result->maxFilePathShmid, NULL, 0);
+                        strcpy(maxFilePath, filePath);
+                    } 
                     result->totalSize += fileSize;
                 }
                 sem_post(&sem); // ! critical section end
@@ -84,6 +101,8 @@ void *search_and_calculate(void *args) {
                     pthread_t ptid;
                     Args *args = (Args *)malloc(sizeof(Args));
                     args->path = dir_cat(path, item->d_name);
+                    args->minFilePathKey = minFilePathKey;
+                    args->maxFilePathKey = maxFilePathKey;
                     pthread_create(&ptid, NULL, &search_and_calculate, (void *)args);
                     thread_handles_add(&children, ptid);
                 }
@@ -117,12 +136,15 @@ int main(int argc, char **argv) {
     key_t resultKey = ("myncdu", 'a');
     key_t minFilePathKey = ("myncdu", 'b');
     key_t maxFilePathKey = ("myncdu", 'c');
+    int maxFilePathShmid;
     int shmid = shmget(resultKey, sizeof(Result), 0666 | IPC_CREAT);
     result = (Result *)shmat(shmid, NULL, 0);
 
     result->totalSize = 0;
     result->minSize = LONG_MAX;
     result->maxSize = 0;
+    result->minFilePathShmid = -1;
+    result->maxFilePathShmid = -1;
 
     sem_init(&sem, 0, 1);
 
@@ -138,14 +160,27 @@ int main(int argc, char **argv) {
 
                 char *filePath = dir_cat(currentPath, item->d_name);
                 long fileSize = fsize(filePath);
-                printf("%s: %d\n", filePath, fileSize);
 
                 sem_wait(&sem); // * critical section start
                 {
                     if (result->minSize > fileSize) {
                         result->minSize = fileSize;
+                        if (result->minFilePathShmid != -1) {
+                            shmctl(result->minFilePathShmid, IPC_RMID, NULL);
+                        }
+                        result->minFilePathShmid = shmget(minFilePathKey, strlen(filePath) + 1, 0666 | IPC_CREAT);
+                        char *minFilePath = shmat(result->minFilePathShmid, NULL, 0);
+                        strcpy(minFilePath, filePath);
                     }
-                    if (result->maxSize < fileSize) result->maxSize = fileSize;
+                    if (result->maxSize < fileSize) {
+                        result->maxSize = fileSize;
+                        if (result->maxFilePathShmid != -1) {
+                            shmctl(result->maxFilePathShmid, IPC_RMID, NULL);
+                        }
+                        result->maxFilePathShmid = shmget(maxFilePathKey, strlen(filePath) + 1, 0666 | IPC_CREAT);
+                        char *maxFilePath = shmat(result->maxFilePathShmid, NULL, 0);
+                        strcpy(maxFilePath, filePath);
+                    } 
                     result->totalSize += fileSize;
                 }
                 sem_post(&sem); // ! critical section end
@@ -178,12 +213,27 @@ int main(int argc, char **argv) {
                 char *filePath = dir_cat(currentPath, item->d_name);
 
                 long fileSize = fsize(filePath);
-                printf("%s : %ld\n", filePath, fileSize);
 
                 sem_wait(&sem); // * critical section start
                 {
-                    if (result->minSize > fileSize) result->minSize = fileSize;
-                    if (result->maxSize < fileSize) result->maxSize = fileSize;
+                    if (result->minSize > fileSize) {
+                        result->minSize = fileSize;
+                        if (result->minFilePathShmid != -1) {
+                            shmctl(result->minFilePathShmid, IPC_RMID, NULL);
+                        }
+                        result->minFilePathShmid = shmget(minFilePathKey, strlen(filePath) + 1, 0666 | IPC_CREAT);
+                        char *minFilePath = shmat(result->minFilePathShmid, NULL, 0);
+                        strcpy(minFilePath, filePath);
+                    }
+                    if (result->maxSize < fileSize) {
+                        result->maxSize = fileSize;
+                        if (result->maxFilePathShmid != -1) {
+                            shmctl(result->maxFilePathShmid, IPC_RMID, NULL);
+                        }
+                        result->maxFilePathShmid = shmget(maxFilePathKey, strlen(filePath) + 1, 0666 | IPC_CREAT);
+                        char *maxFilePath = shmat(result->maxFilePathShmid, NULL, 0);
+                        strcpy(maxFilePath, filePath);
+                    } 
                     result->totalSize += fileSize;
                 }
                 sem_post(&sem); // ! critical section end
@@ -194,6 +244,8 @@ int main(int argc, char **argv) {
                 pthread_t ptid;
                 Args *args = (Args *)malloc(sizeof(Args));
                 args->path = dir_cat(currentPath, item->d_name);
+                args->minFilePathKey = minFilePathKey;
+                args->maxFilePathKey = maxFilePathKey;
                 pthread_create(&ptid, NULL, &search_and_calculate, args);
                 thread_handles_add(&children, ptid);
             }
@@ -212,10 +264,32 @@ int main(int argc, char **argv) {
 
         // wait for all children to finish
         while (wait(NULL) > 0);
-        printf("total size: %d\n", result->totalSize);
-        printf("max size: %d\n", result->maxSize);
-        printf("min size: %d\n", result->minSize);
+
+        if (result->totalSize >= (2 << 30)) printf("total size: %d GiB\n", result->totalSize >> 30);
+        else if (result->totalSize >= (2 << 20)) printf("total size: %d MiB\n", result->totalSize >> 20);
+        else if (result->totalSize >= (2 << 10)) printf("total size: %d KiB\n", result->totalSize >> 10);
+        else printf("total size: %d B\n", result->totalSize);
+
+        if (result->maxSize >= (2 << 30)) printf("max size: %d GiB\n", result->maxSize >> 30);
+        else if (result->maxSize >= (2 << 20)) printf("max size: %d MiB\n", result->maxSize >> 20);
+        else if (result->maxSize >= (2 << 10)) printf("max size: %d KiB\n", result->maxSize >> 10);
+        else printf("max size: %d B\n", result->maxSize);
+
+        if (result->minSize >= (2 << 30)) printf("min size: %d GiB\n", result->minSize >> 30);
+        else if (result->minSize >= (2 << 20)) printf("min size: %d MiB\n", result->minSize >> 20);
+        else if (result->minSize >= (2 << 10)) printf("min size: %d KiB\n", result->minSize >> 10);
+        else printf("min size: %d B\n", result->minSize);
+
+        
+        char *minFilePath = NULL;
+        char *maxFilePath = NULL;
+        if (result->maxFilePathShmid != -1) maxFilePath = shmat(result->maxFilePathShmid, NULL, 0); 
+        if (result->minFilePathShmid != -1) minFilePath = shmat(result->minFilePathShmid, NULL, 0); 
+        printf("max file path: %s\n", maxFilePath);
+        printf("min file path: %s\n", minFilePath);
         shmctl(shmid, IPC_RMID, NULL);
+        shmctl(result->minFilePathShmid, IPC_RMID, NULL);
+        shmctl(result->maxFilePathShmid, IPC_RMID, NULL);
     }
 
     closedir(dir);
