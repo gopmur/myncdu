@@ -207,7 +207,7 @@ int main(int argc, char **argv) {
                     }
                     int fileTypeLen = strlen(fileType);
                     bool found = false;
-                    
+
                     if (result->fileTypesShmid == -1) {
                         result->fileTypesShmid = shmget(fileTypesKey, sizeof(FileTypes) + sizeof(int) + (fileTypeLen + 1), 0666 | IPC_CREAT);
                         FileTypes *fileTypes = (FileTypes *)shmat(result->fileTypesShmid, NULL, 0);
@@ -231,49 +231,12 @@ int main(int argc, char **argv) {
                             j++;
                         }
                     }
-                    
+
                     if (!found && result->fileTypesShmid != -1) {
-                        
-                        int i = 0;
-                        int j = 0;
 
-                        FileTypes *fileTypes = (FileTypes *)shmat(result->fileTypesShmid, NULL, 0);
-                        int fileTypesSize = sizeof(FileTypes) + sizeof(int) * fileTypes->n + i;
 
-                        while (j < fileTypes->n) {
-                            i += strlen(&fileTypes->types[i]) + 1;
-                            j++;
-                        }
 
-                        char *tmp = malloc(fileTypesSize);
-                        for (int i = 0; i < fileTypesSize; i++) {
-                            tmp[i] = ((char *)fileTypes)[i]; 
-                        }
 
-                        
-                        shmctl(result->fileTypesShmid, IPC_RMID, NULL);
-
-                        result->fileTypesShmid = shmget(fileTypesKey, fileTypesSize + (fileTypeLen + 1), 0666 | IPC_CREAT);
-
-                        fileTypes = (FileTypes *)shmat(result->fileTypesShmid, NULL, 0);
-                        
-                        for (int i = 0; i < fileTypesSize; i++) {
-                            ((char *)fileTypes)[i] = ((char *)tmp)[i]; 
-                        }
-
-                        fileTypes->n++;
-                        fileTypes->counts = (int *)((void *)fileTypes + sizeof(FileTypes));
-                        fileTypes->types = (char *)((void *)fileTypes + sizeof(FileTypes) + sizeof(int) * fileTypes->n);
-                        fileTypes->counts[fileTypes->n - 1] = 1;
-                        
-                        printf("%s %d\n", &((FileTypes *)tmp)->types[0], i);
-                        printf("%s %d\n", &((FileTypes *)tmp)->types[0], i);
-                        
-                        printf("\n");
-
-                        strcpy(&fileTypes->types[i], fileType);
-                        
-                        
                     }
                     result->totalSize += fileSize;
                     result->numberOfFiles++;
@@ -388,16 +351,14 @@ int main(int argc, char **argv) {
 
         FileTypes *fileTypes = (FileTypes *)shmat(result->fileTypesShmid, NULL, 0);
 
-        int i = 0;
         int j = 0;
+        int i = 0;
 
-        while (i < 10) {
-            if (fileTypes->types[i]) printf("%c", fileTypes->types[i]);
-            else printf(" ");
-            i += 1;
+        while (j < fileTypes->n) {
+            printf("%s: %d\n", &fileTypes->types[i], fileTypes->counts[j]);
+            i += strlen(&fileTypes->types[i]) + 1;
             j++;
         }
-        printf("\n");
 
         shmctl(resultShmid, IPC_RMID, NULL);
         shmctl(sempShmid, IPC_RMID, NULL);
