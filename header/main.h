@@ -4,4 +4,6 @@ typedef struct _Result {
     unsigned long minSize;
     int minFilePathShmid;
     int maxFilePathShmid;
+    int fileTypesShmid;
+    int numberOfFiles;
 } Result;
